@@ -1,5 +1,25 @@
 #!/usr/bin/env python3
 
+from dataclasses import dataclass, field
+@dataclass
+class SimObject:
+    """Representation of a Trick SimObject."""
+
+    name: str
+    instance: str
+    members: List[Tuple[str, str]] = field(default_factory=list)
+    jobs: List[Tuple[str, str]] = field(default_factory=list)
+
+
+        self.simobjects: List[SimObject] = []
+        sim_frame = tk.Frame(lists)
+        tk.Label(sim_frame, text="Sim Objects").pack()
+        self.sim_list = tk.Listbox(sim_frame)
+        self.sim_list.pack(fill=tk.BOTH, expand=True)
+        lists.add(sim_frame)
+
+        tk.Button(buttons, text="New SimObject", command=self._new_simobject).pack(side=tk.LEFT)
+        tk.Button(buttons, text="Add to SimObject", command=self._add_to_simobject).pack(side=tk.LEFT)
 """Simple GUI tool to generate Trick ``S_define`` snippets.
 
 This script crawls a models directory for header files and allows a user
@@ -135,6 +155,65 @@ class SDefineEditor(tk.Tk):
     def _add_headers(self) -> None:
         for i in self.header_list.curselection():
             header = self.headers[i]
+    def _new_simobject(self) -> None:
+        """Create a new SimObject."""
+        cname = simpledialog.askstring("SimObject Class", "SimObject class name")
+        if not cname:
+            return
+        instance = simpledialog.askstring("Instance Name", "SimObject instance name")
+        if not instance:
+            return
+        so = SimObject(cname, instance)
+        self.simobjects.append(so)
+        self.sim_list.insert(tk.END, f"{cname} ({instance})")
+        self._update_text()
+
+    def _current_simobject(self) -> SimObject | None:
+        sel = self.sim_list.curselection()
+        if not sel:
+            messagebox.showwarning("Select", "Select a SimObject")
+            return None
+        return self.simobjects[sel[0]]
+
+    def _add_to_simobject(self) -> None:
+        if not self.models_dir:
+            return
+        simobj = self._current_simobject()
+        if not simobj:
+            return
+        for i in self.class_list.curselection():
+            cls = self.class_list.get(i)
+            header = self.class_header_map.get(cls)
+            if header and header not in self.selected_headers:
+                self.selected_headers.append(header)
+                self.selected_list.insert(tk.END, f"##include \"{header}\"")
+            var = simpledialog.askstring("Member Name", f"Variable name for {cls}")
+            if not var:
+                continue
+            simobj.members.append((cls, var))
+            # Ask for common job calls
+            if messagebox.askyesno("Job", f"Add default_data job for {var}?"):
+                simobj.jobs.append(("default_data", f"{var}.default_data()"))
+            if messagebox.askyesno("Job", f"Add initialization job for {var}?"):
+                simobj.jobs.append(("initialization", f"{var}.state_init()"))
+            if messagebox.askyesno("Job", f"Add derivative job for {var}?"):
+                simobj.jobs.append(("derivative", f"{var}.state_deriv()"))
+            if messagebox.askyesno("Job", f"Add integration job for {var}?"):
+                simobj.jobs.append(("integration", f"trick_ret = {var}.state_integ()"))
+        self._update_text()
+
+        for so in self.simobjects:
+            lines.append("")
+            lines.append(f"class {so.name} : public Trick::SimObject {{")
+            lines.append("    public:")
+            for cls, var in so.members:
+                lines.append(f"        {cls} {var};")
+            lines.append(f"        {so.name}() {{")
+            for phase, call in so.jobs:
+                lines.append(f"            (\"{phase}\") {call} ;")
+            lines.append("        }")
+            lines.append("};")
+            lines.append(f"{so.name} {so.instance};")
             if header not in self.selected_headers:
                 self.selected_headers.append(header)
                 self.selected_list.insert(tk.END, f"##include \"{header}\"")
