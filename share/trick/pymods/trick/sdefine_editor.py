@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
+
 """Simple GUI tool to generate Trick ``S_define`` snippets.
 
 This script crawls a models directory for header files and allows a user
 to select the headers and classes found within to compose ``S_define``
 content via a minimal Tkinter GUI.
+
 """
 
 from __future__ import annotations
 
 import os
 import tkinter as tk
+
 from tkinter import filedialog, messagebox, simpledialog
 from typing import Dict, List, Tuple
 import re
@@ -57,6 +60,7 @@ def parse_header_classes(path: str) -> List[str]:
     return classes
 
 
+
 class SDefineEditor(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
@@ -64,10 +68,12 @@ class SDefineEditor(tk.Tk):
         self.geometry("800x600")
         self.models_dir: str | None = None
         self.headers: List[str] = []
+
         self.selected_headers: List[str] = []
         self.selected_classes: List[Tuple[str, str]] = []
         self.class_header_map: Dict[str, str] = {}
         self.header_class_cache: Dict[str, List[str]] = {}
+
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -84,6 +90,7 @@ class SDefineEditor(tk.Tk):
         tk.Label(left, text="Headers").pack()
         self.header_list = tk.Listbox(left, selectmode=tk.MULTIPLE)
         self.header_list.pack(fill=tk.BOTH, expand=True)
+
         self.header_list.bind("<<ListboxSelect>>", self._update_class_list)
         lists.add(left)
 
@@ -92,6 +99,7 @@ class SDefineEditor(tk.Tk):
         self.class_list = tk.Listbox(class_frame, selectmode=tk.MULTIPLE)
         self.class_list.pack(fill=tk.BOTH, expand=True)
         lists.add(class_frame)
+
 
         right = tk.Frame(lists)
         tk.Label(right, text="Selected").pack()
@@ -104,6 +112,7 @@ class SDefineEditor(tk.Tk):
         tk.Button(buttons, text="Add Headers", command=self._add_headers).pack(side=tk.LEFT)
         tk.Button(buttons, text="Add Classes", command=self._add_classes).pack(side=tk.LEFT)
 
+
         self.text = tk.Text(self)
         self.text.pack(fill=tk.BOTH, expand=True)
 
@@ -114,12 +123,14 @@ class SDefineEditor(tk.Tk):
         if directory:
             self.models_dir = directory
             self.dir_label.config(text=directory)
+
             self.headers = crawl_models(directory)
             self.header_list.delete(0, tk.END)
             for h in self.headers:
                 self.header_list.insert(tk.END, h)
             self.class_list.delete(0, tk.END)
             self.class_header_map.clear()
+
 
     def _add_headers(self) -> None:
         for i in self.header_list.curselection():
@@ -128,6 +139,7 @@ class SDefineEditor(tk.Tk):
                 self.selected_headers.append(header)
                 self.selected_list.insert(tk.END, f"##include \"{header}\"")
         self._update_text()
+
 
     def _update_class_list(self, _event: tk.Event | None = None) -> None:
         """Add classes from the currently selected headers to the list."""
@@ -157,14 +169,17 @@ class SDefineEditor(tk.Tk):
             if name:
                 self.selected_classes.append((cls, name))
                 self.selected_list.insert(tk.END, f"{cls} {name} ;")
+
         self._update_text()
 
     def _update_text(self) -> None:
         lines: List[str] = []
         for h in self.selected_headers:
             lines.append(f"##include \"{h}\"")
+
         for cls, name in self.selected_classes:
             lines.append(f"{cls} {name} ;")
+
         self.text.delete("1.0", tk.END)
         self.text.insert(tk.END, "\n".join(lines))
 
