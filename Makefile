@@ -147,17 +147,11 @@ ICG_EXE := ${TRICK_HOME}/bin/trick-ICG
 #                                   RULES
 ################################################################################
 # DEFAULT TARGET
-# 1 Build Trick-core and Trick Data-products.
-all: no_dp dp
+# Build Trick-core only. Data and visualization tools are built separately.
+all: no_dp
 	@ echo ; echo "[32mTrick compilation complete:[00m" ; date
 
-ifeq ($(USE_JAVA), 1)
-all: java
-endif
 
-ifeq ($(USE_CIVETWEB), 1)
-all: civetweb
-endif
 
 #-------------------------------------------------------------------------------
 # 1.1 Build Trick-core
