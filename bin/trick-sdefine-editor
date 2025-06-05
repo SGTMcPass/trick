@@ -1,0 +1,12 @@
+#!/usr/bin/env python3
+import os
+import sys
+from os.path import dirname, abspath
+
+TRICK_HOME = dirname(dirname(abspath(__file__)))
+sys.path.insert(0, os.path.join(TRICK_HOME, "share/trick/pymods"))
+
+from trick import sdefine_editor
+
+if __name__ == "__main__":
+    sdefine_editor.main()
