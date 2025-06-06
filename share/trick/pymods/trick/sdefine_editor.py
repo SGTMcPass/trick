@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog
+from tkinter import ttk
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass, field
 import re
@@ -80,6 +81,8 @@ class SDefineEditor(tk.Tk):
         self.class_header_map: Dict[str, str] = {}
         self.header_class_cache: Dict[str, List[str]] = {}
         self.simobjects: List[SimObject] = []
+        self._tree_nodes: Dict[str, str] = {}
+        self._drag_item: Optional[str] = None
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -93,10 +96,13 @@ class SDefineEditor(tk.Tk):
         lists.pack(fill=tk.BOTH, expand=True)
 
         left = tk.Frame(lists)
-        tk.Label(left, text="Headers").pack()
-        self.header_list = tk.Listbox(left, selectmode=tk.MULTIPLE)
-        self.header_list.pack(fill=tk.BOTH, expand=True)
-        self.header_list.bind("<<ListboxSelect>>", self._update_class_list)
+        tk.Label(left, text="Model Files").pack()
+        self.model_tree = ttk.Treeview(left)
+        self.model_tree.pack(fill=tk.BOTH, expand=True)
+        self.model_tree.bind("<<TreeviewOpen>>", self._expand_node)
+        self.model_tree.bind("<<TreeviewSelect>>", self._update_class_list)
+        self.model_tree.bind("<ButtonPress-1>", self._tree_press)
+        self.model_tree.bind("<ButtonRelease-1>", self._tree_release)
         lists.add(left)
 
         class_frame = tk.Frame(lists)
@@ -135,32 +141,116 @@ class SDefineEditor(tk.Tk):
             self.models_dir = directory
             self.dir_label.config(text=directory)
             self.headers = crawl_models(directory)
-            self.header_list.delete(0, tk.END)
-            for h in self.headers:
-                self.header_list.insert(tk.END, h)
+            self.model_tree.delete(*self.model_tree.get_children())
+            root = self.model_tree.insert("", "end", text=os.path.basename(directory), open=True, tags=("dir",), values=(directory,))
+            self._tree_nodes: Dict[str, str] = {"": root}
+            for header in self.headers:
+                parent = root
+                path_so_far = directory
+                for part in header.split(os.sep):
+                    path_so_far = os.path.join(path_so_far, part)
+                    key = os.path.relpath(path_so_far, directory)
+                    if key not in self._tree_nodes:
+                        tag = "header" if part.endswith((".h", ".hh", ".hpp")) else "dir"
+                        self._tree_nodes[key] = self.model_tree.insert(parent, "end", text=part, tags=(tag,), values=(path_so_far,))
+                    parent = self._tree_nodes[key]
             self.class_list.delete(0, tk.END)
             self.class_header_map.clear()
 
-    def _add_headers(self) -> None:
-        for i in self.header_list.curselection():
-            header = self.headers[i]
+    def _expand_node(self, event: Optional[tk.Event] = None) -> None:
+        item = self.model_tree.focus()
+        if "header" in self.model_tree.item(item, "tags"):
+            if self.model_tree.get_children(item):
+                return
+            full = self.model_tree.item(item, "values")[0]
+            header = os.path.relpath(full, self.models_dir)
+            if header not in self.header_class_cache:
+                self.header_class_cache[header] = parse_header_classes(full)
+            for cls in self.header_class_cache[header]:
+                self.model_tree.insert(item, "end", text=cls, tags=("class",), values=(full, cls))
+
+    def _tree_press(self, event: tk.Event) -> None:
+        self._drag_item = self.model_tree.identify_row(event.y)
+
+    def _tree_release(self, event: tk.Event) -> None:
+        if not self._drag_item:
+            return
+        target = self.winfo_containing(event.x_root, event.y_root)
+        if target == self.selected_list:
+            self._drop_to_selected(self._drag_item)
+        elif target == self.sim_list:
+            self._drop_to_sim_list(self._drag_item, event.y)
+        self._drag_item = None
+
+    def _drop_to_selected(self, item: str) -> None:
+        if "header" in self.model_tree.item(item, "tags"):
+            full = self.model_tree.item(item, "values")[0]
+            header = os.path.relpath(full, self.models_dir)
             if header not in self.selected_headers:
                 self.selected_headers.append(header)
                 self.selected_list.insert(tk.END, f"##include \"{header}\"")
+        elif "class" in self.model_tree.item(item, "tags"):
+            full = self.model_tree.item(item, "values")[0]
+            header = os.path.relpath(full, self.models_dir)
+            cls = self.model_tree.item(item, "text")
+            if header not in self.selected_headers:
+                self.selected_headers.append(header)
+                self.selected_list.insert(tk.END, f"##include \"{header}\"")
+            name = simpledialog.askstring("Instance Name", f"Instance name for {cls}")
+            if name:
+                self.selected_classes.append((cls, name))
+                self.selected_list.insert(tk.END, f"{cls} {name} ;")
+        self._update_text()
+
+    def _drop_to_sim_list(self, item: str, y: int) -> None:
+        index = self.sim_list.nearest(y)
+        if index < 0 or index >= len(self.simobjects):
+            return
+        simobj = self.simobjects[index]
+        if "class" in self.model_tree.item(item, "tags"):
+            full = self.model_tree.item(item, "values")[0]
+            header = os.path.relpath(full, self.models_dir)
+            cls = self.model_tree.item(item, "text")
+            if header not in self.selected_headers:
+                self.selected_headers.append(header)
+                self.selected_list.insert(tk.END, f"##include \"{header}\"")
+            var = simpledialog.askstring("Member Name", f"Variable name for {cls}")
+            if not var:
+                return
+            simobj.members.append((cls, var))
+            if messagebox.askyesno("Job", f"Add default_data job for {var}?"):
+                simobj.jobs.append(("default_data", f"{var}.default_data()"))
+            if messagebox.askyesno("Job", f"Add initialization job for {var}?"):
+                simobj.jobs.append(("initialization", f"{var}.state_init()"))
+            if messagebox.askyesno("Job", f"Add derivative job for {var}?"):
+                simobj.jobs.append(("derivative", f"{var}.state_deriv()"))
+            if messagebox.askyesno("Job", f"Add integration job for {var}?"):
+                simobj.jobs.append(("integration", f"trick_ret = {var}.state_integ()"))
+            self._update_text()
+
+    def _add_headers(self) -> None:
+        for item in self.model_tree.selection():
+            if "header" in self.model_tree.item(item, "tags"):
+                full = self.model_tree.item(item, "values")[0]
+                header = os.path.relpath(full, self.models_dir)
+                if header not in self.selected_headers:
+                    self.selected_headers.append(header)
+                    self.selected_list.insert(tk.END, f"##include \"{header}\"")
         self._update_text()
 
     def _update_class_list(self, _event: Optional[tk.Event] = None) -> None:
-        """Add classes from the currently selected headers to the list."""
+        """Populate class list based on selected headers in the tree."""
         if not self.models_dir:
             return
-        for i in self.header_list.curselection():
-            header = self.headers[i]
-            if header not in self.header_class_cache:
-                self.header_class_cache[header] = parse_header_classes(
-                    os.path.join(self.models_dir, header)
-                )
-            for cls in self.header_class_cache[header]:
-                if cls not in self.class_header_map:
+        self.class_list.delete(0, tk.END)
+        self.class_header_map.clear()
+        for item in self.model_tree.selection():
+            if "header" in self.model_tree.item(item, "tags"):
+                full = self.model_tree.item(item, "values")[0]
+                header = os.path.relpath(full, self.models_dir)
+                if header not in self.header_class_cache:
+                    self.header_class_cache[header] = parse_header_classes(full)
+                for cls in self.header_class_cache[header]:
                     self.class_header_map[cls] = header
                     self.class_list.insert(tk.END, cls)
 

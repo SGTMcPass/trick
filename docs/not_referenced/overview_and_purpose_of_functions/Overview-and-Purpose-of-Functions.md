@@ -12,7 +12,7 @@ trick-killsim                | Kills runaways simulations
 make                         | Standard UNIX make command
 S_main_${TRICK_HOST_CPU}.exe | Specific Trick Simulation
 trick-version                | Displays the currently installed Trick Release Version
-trick-sdefine-editor         | GUI tool for composing S_define files and building SimObjects from model classes
+trick-sdefine-editor         | GUI tool for composing S_define files and building SimObjects from model classes using a drag-and-drop tree view
 
 **Table 1. Trick Processor and Utility Functions**
 
