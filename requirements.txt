@@ -1,9 +1,9 @@
-PyYAML        # YAML parsing for TrickWorkflowYamlVerifier
-psutil        # Process management in TrickWorkflow and utils
-numpy         # Data processing for rocket scripts and SAIntegrator examples
-matplotlib    # Plotting for rocket and SAIntegrator example scripts
-wxPython      # GUI example for SIM_Ball++_L1
-websockets    # Websocket tests for civet_server
-requests      # HTTP client in civet_server tests
-pytest        # Test framework for Trick python modules
-pytest-asyncio # Async support for websocket tests
+PyYAML>=5.1         # YAML parsing in TrickWorkflowYamlVerifier
+psutil>=5.8         # Process management in TrickWorkflow and utils
+numpy>=1.21         # Data processing for rocket scripts and SAIntegrator examples
+matplotlib>=3.4     # Plotting for rocket and SAIntegrator example scripts
+wxPython>=4.2       # GUI example for SIM_Ball++_L1
+websockets>=10.0    # WebSocket tests for civet_server
+requests>=2.25      # HTTP client in civet_server tests
+pytest>=6.2         # Test framework for Trick Python modules
+pytest-asyncio>=0.17 # Async support for websocket tests
