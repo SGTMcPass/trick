@@ -82,6 +82,8 @@ class SDefineEditor(tk.Tk):
         self.simobjects: List[SimObject] = []
         self._tree_nodes: Dict[str, str] = {}
         self._drag_item: Optional[str] = None
+        self._drag_source: Optional[str] = None
+        self.current_sim_index: Optional[int] = None
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -108,12 +110,15 @@ class SDefineEditor(tk.Tk):
         tk.Label(class_frame, text="Classes").pack()
         self.class_list = tk.Listbox(class_frame, selectmode=tk.MULTIPLE)
         self.class_list.pack(fill=tk.BOTH, expand=True)
+        self.class_list.bind("<ButtonPress-1>", self._class_press)
+        self.class_list.bind("<ButtonRelease-1>", self._class_release)
         lists.add(class_frame)
 
         sim_frame = tk.Frame(lists)
         tk.Label(sim_frame, text="Sim Objects").pack()
         self.sim_list = tk.Listbox(sim_frame)
         self.sim_list.pack(fill=tk.BOTH, expand=True)
+        self.sim_list.bind("<<ListboxSelect>>", self._on_sim_select)
         lists.add(sim_frame)
 
         right = tk.Frame(lists)
@@ -154,6 +159,7 @@ class SDefineEditor(tk.Tk):
                     parent = self._tree_nodes[key]
             self.class_list.delete(0, tk.END)
             self.class_header_map.clear()
+            self.current_sim_index = None
 
     def _expand_node(self, event: Optional[tk.Event] = None) -> None:
         item = self.model_tree.focus()
@@ -169,6 +175,7 @@ class SDefineEditor(tk.Tk):
 
     def _tree_press(self, event: tk.Event) -> None:
         self._drag_item = self.model_tree.identify_row(event.y)
+        self._drag_source = "tree"
 
     def _tree_release(self, event: tk.Event) -> None:
         if not self._drag_item:
@@ -179,6 +186,23 @@ class SDefineEditor(tk.Tk):
         elif target == self.sim_list:
             self._drop_to_sim_list(self._drag_item, event.y)
         self._drag_item = None
+        self._drag_source = None
+
+    def _class_press(self, event: tk.Event) -> None:
+        idx = self.class_list.nearest(event.y)
+        if idx >= 0:
+            self._drag_item = idx
+            self._drag_source = "class"
+
+    def _class_release(self, event: tk.Event) -> None:
+        if self._drag_item is None:
+            return
+        target = self.winfo_containing(event.x_root, event.y_root)
+        if target == self.sim_list and self.current_sim_index is not None:
+            cls = self.class_list.get(self._drag_item)
+            self._add_member_to_sim(self.simobjects[self.current_sim_index], cls)
+        self._drag_item = None
+        self._drag_source = None
 
     def _drop_to_selected(self, item: str) -> None:
         if "header" in self.model_tree.item(item, "tags"):
@@ -200,25 +224,27 @@ class SDefineEditor(tk.Tk):
             return
         simobj = self.simobjects[index]
         if "class" in self.model_tree.item(item, "tags"):
-            full = self.model_tree.item(item, "values")[0]
-            header = os.path.relpath(full, self.models_dir)
             cls = self.model_tree.item(item, "text")
-            if header not in self.selected_headers:
-                self.selected_headers.append(header)
-                self.selected_list.insert(tk.END, f"##include \"{header}\"")
-            var = simpledialog.askstring("Member Name", f"Variable name for {cls}")
-            if not var:
-                return
-            simobj.members.append((cls, var))
-            if messagebox.askyesno("Job", f"Add default_data job for {var}?"):
-                simobj.jobs.append(("default_data", f"{var}.default_data()"))
-            if messagebox.askyesno("Job", f"Add initialization job for {var}?"):
-                simobj.jobs.append(("initialization", f"{var}.state_init()"))
-            if messagebox.askyesno("Job", f"Add derivative job for {var}?"):
-                simobj.jobs.append(("derivative", f"{var}.state_deriv()"))
-            if messagebox.askyesno("Job", f"Add integration job for {var}?"):
-                simobj.jobs.append(("integration", f"trick_ret = {var}.state_integ()"))
-            self._update_text()
+            header = os.path.relpath(self.model_tree.item(item, "values")[0], self.models_dir)
+            self._add_member_to_sim(simobj, cls, header)
+
+    def _add_member_to_sim(self, simobj: SimObject, cls: str, header: Optional[str] = None) -> None:
+        if header and header not in self.selected_headers:
+            self.selected_headers.append(header)
+            self.selected_list.insert(tk.END, f"##include \"{header}\"")
+        var = simpledialog.askstring("Member Name", f"Variable name for {cls}")
+        if not var:
+            return
+        simobj.members.append((cls, var))
+        if messagebox.askyesno("Job", f"Add default_data job for {var}?"):
+            simobj.jobs.append(("default_data", f"{var}.default_data()"))
+        if messagebox.askyesno("Job", f"Add initialization job for {var}?"):
+            simobj.jobs.append(("initialization", f"{var}.state_init()"))
+        if messagebox.askyesno("Job", f"Add derivative job for {var}?"):
+            simobj.jobs.append(("derivative", f"{var}.state_deriv()"))
+        if messagebox.askyesno("Job", f"Add integration job for {var}?"):
+            simobj.jobs.append(("integration", f"trick_ret = {var}.state_integ()"))
+        self._update_text()
 
     def _add_headers(self) -> None:
         for item in self.model_tree.selection():
@@ -261,11 +287,15 @@ class SDefineEditor(tk.Tk):
         self._update_text()
 
     def _current_simobject(self) -> Optional[SimObject]:
-        sel = self.sim_list.curselection()
-        if not sel:
+        if self.current_sim_index is None:
             messagebox.showwarning("Select", "Select a SimObject")
             return None
-        return self.simobjects[sel[0]]
+        return self.simobjects[self.current_sim_index]
+
+    def _on_sim_select(self, _event: Optional[tk.Event] = None) -> None:
+        sel = self.sim_list.curselection()
+        if sel:
+            self.current_sim_index = sel[0]
 
     def _add_to_simobject(self) -> None:
         if not self.models_dir:
@@ -276,22 +306,7 @@ class SDefineEditor(tk.Tk):
         for i in self.class_list.curselection():
             cls = self.class_list.get(i)
             header = self.class_header_map.get(cls)
-            if header and header not in self.selected_headers:
-                self.selected_headers.append(header)
-                self.selected_list.insert(tk.END, f"##include \"{header}\"")
-            var = simpledialog.askstring("Member Name", f"Variable name for {cls}")
-            if not var:
-                continue
-            simobj.members.append((cls, var))
-            # Ask for common job calls
-            if messagebox.askyesno("Job", f"Add default_data job for {var}?"):
-                simobj.jobs.append(("default_data", f"{var}.default_data()"))
-            if messagebox.askyesno("Job", f"Add initialization job for {var}?"):
-                simobj.jobs.append(("initialization", f"{var}.state_init()"))
-            if messagebox.askyesno("Job", f"Add derivative job for {var}?"):
-                simobj.jobs.append(("derivative", f"{var}.state_deriv()"))
-            if messagebox.askyesno("Job", f"Add integration job for {var}?"):
-                simobj.jobs.append(("integration", f"trick_ret = {var}.state_integ()"))
+            self._add_member_to_sim(simobj, cls, header)
         self._update_text()
 
     def _update_text(self) -> None:
