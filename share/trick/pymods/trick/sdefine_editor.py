@@ -77,7 +77,6 @@ class SDefineEditor(tk.Tk):
         self.models_dir: Optional[str] = None
         self.headers: List[str] = []
         self.selected_headers: List[str] = []
-        self.selected_classes: List[Tuple[str, str]] = []
         self.class_header_map: Dict[str, str] = {}
         self.header_class_cache: Dict[str, List[str]] = {}
         self.simobjects: List[SimObject] = []
@@ -126,7 +125,6 @@ class SDefineEditor(tk.Tk):
         buttons = tk.Frame(self)
         buttons.pack(fill=tk.X)
         tk.Button(buttons, text="Add Headers", command=self._add_headers).pack(side=tk.LEFT)
-        tk.Button(buttons, text="Add Classes", command=self._add_classes).pack(side=tk.LEFT)
         tk.Button(buttons, text="New SimObject", command=self._new_simobject).pack(side=tk.LEFT)
         tk.Button(buttons, text="Add to SimObject", command=self._add_to_simobject).pack(side=tk.LEFT)
 
@@ -190,16 +188,10 @@ class SDefineEditor(tk.Tk):
                 self.selected_headers.append(header)
                 self.selected_list.insert(tk.END, f"##include \"{header}\"")
         elif "class" in self.model_tree.item(item, "tags"):
-            full = self.model_tree.item(item, "values")[0]
-            header = os.path.relpath(full, self.models_dir)
-            cls = self.model_tree.item(item, "text")
-            if header not in self.selected_headers:
-                self.selected_headers.append(header)
-                self.selected_list.insert(tk.END, f"##include \"{header}\"")
-            name = simpledialog.askstring("Instance Name", f"Instance name for {cls}")
-            if name:
-                self.selected_classes.append((cls, name))
-                self.selected_list.insert(tk.END, f"{cls} {name} ;")
+            messagebox.showinfo(
+                "Add to SimObject",
+                "Drop classes onto a SimObject or use 'Add to SimObject'"
+            )
         self._update_text()
 
     def _drop_to_sim_list(self, item: str, y: int) -> None:
@@ -254,20 +246,6 @@ class SDefineEditor(tk.Tk):
                     self.class_header_map[cls] = header
                     self.class_list.insert(tk.END, cls)
 
-    def _add_classes(self) -> None:
-        if not self.models_dir:
-            return
-        for i in self.class_list.curselection():
-            cls = self.class_list.get(i)
-            header = self.class_header_map.get(cls)
-            if header and header not in self.selected_headers:
-                self.selected_headers.append(header)
-                self.selected_list.insert(tk.END, f"##include \"{header}\"")
-            name = simpledialog.askstring("Instance Name", f"Instance name for {cls}")
-            if name:
-                self.selected_classes.append((cls, name))
-                self.selected_list.insert(tk.END, f"{cls} {name} ;")
-        self._update_text()
 
     def _new_simobject(self) -> None:
         """Create a new SimObject."""
@@ -320,8 +298,6 @@ class SDefineEditor(tk.Tk):
         lines: List[str] = []
         for h in self.selected_headers:
             lines.append(f"##include \"{h}\"")
-        for cls, name in self.selected_classes:
-            lines.append(f"{cls} {name} ;")
         for so in self.simobjects:
             lines.append("")
             lines.append(f"class {so.name} : public Trick::SimObject {{")
