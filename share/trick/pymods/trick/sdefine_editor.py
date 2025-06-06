@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Simple GUI tool to generate Trick ``S_define`` snippets.
 
-This script crawls a models directory for header files and allows a user
-to select the headers and classes found within to compose ``S_define``
+This script crawls a models directory for header files and ``.sm``
+SimObject modules. The headers and classes found within can be
+assembled along with existing SimObject modules to compose ``S_define``
 content via a minimal Tkinter GUI.
 """
 
@@ -18,12 +19,12 @@ import re
 
 
 def crawl_models(directory: str) -> List[str]:
-    """Return relative header file paths within *directory*.
+    """Return relative header and ``.sm`` file paths within *directory*.
 
     Directories whose names start with ``SIM_`` as well as any symbolic
     links are ignored while crawling.
     """
-    headers: List[str] = []
+    files_found: List[str] = []
     for root, dirs, files in os.walk(directory, followlinks=False):
         # remove simulation directories and symlinked directories from walk
         dirs[:] = [
@@ -35,11 +36,11 @@ def crawl_models(directory: str) -> List[str]:
             full = os.path.join(root, name)
             if os.path.islink(full):
                 continue
-            if name.endswith((".h", ".hh", ".hpp")):
+            if name.endswith((".h", ".hh", ".hpp", ".sm")):
                 rel = os.path.relpath(full, directory)
-                headers.append(rel)
-    headers.sort()
-    return headers
+                files_found.append(rel)
+    files_found.sort()
+    return files_found
 
 
 def parse_header_classes(path: str) -> List[str]:
@@ -57,6 +58,27 @@ def parse_header_classes(path: str) -> List[str]:
     except OSError:
         pass
     return classes
+
+
+def parse_sm_file(path: str) -> Tuple[List[str], Dict[str, str]]:
+    """Return SimObject class names and existing instances from ``path``."""
+    class_pattern = re.compile(r"^\s*class\s+(\w+)\s*:\s*public\s+Trick::SimObject")
+    inst_pattern = re.compile(r"^\s*(\w+)\s+(\w+)\s*;")
+    classes: List[str] = []
+    instances: Dict[str, str] = {}
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                m = class_pattern.search(line)
+                if m:
+                    cls = m.group(1)
+                    classes.append(cls)
+                m = inst_pattern.search(line)
+                if m:
+                    instances[m.group(1)] = m.group(2)
+    except OSError:
+        pass
+    return classes, instances
 
 
 @dataclass
@@ -77,6 +99,7 @@ class SDefineEditor(tk.Tk):
         self.models_dir: Optional[str] = None
         self.headers: List[str] = []
         self.selected_headers: List[str] = []
+        self.selected_sims: Dict[str, List[Tuple[str, str]]] = {}
         self.class_header_map: Dict[str, str] = {}
         self.header_class_cache: Dict[str, List[str]] = {}
         self.simobjects: List[SimObject] = []
@@ -154,12 +177,18 @@ class SDefineEditor(tk.Tk):
                     path_so_far = os.path.join(path_so_far, part)
                     key = os.path.relpath(path_so_far, directory)
                     if key not in self._tree_nodes:
-                        tag = "header" if part.endswith((".h", ".hh", ".hpp")) else "dir"
+                        if part.endswith((".h", ".hh", ".hpp")):
+                            tag = "header"
+                        elif part.endswith(".sm"):
+                            tag = "sm"
+                        else:
+                            tag = "dir"
                         self._tree_nodes[key] = self.model_tree.insert(parent, "end", text=part, tags=(tag,), values=(path_so_far,))
                     parent = self._tree_nodes[key]
             self.class_list.delete(0, tk.END)
             self.class_header_map.clear()
             self.current_sim_index = None
+            self.selected_sims.clear()
 
     def _expand_node(self, event: Optional[tk.Event] = None) -> None:
         item = self.model_tree.focus()
@@ -211,6 +240,10 @@ class SDefineEditor(tk.Tk):
             if header not in self.selected_headers:
                 self.selected_headers.append(header)
                 self.selected_list.insert(tk.END, f"##include \"{header}\"")
+        elif "sm" in self.model_tree.item(item, "tags"):
+            full = self.model_tree.item(item, "values")[0]
+            sm_rel = os.path.relpath(full, self.models_dir)
+            self._add_sm_file(sm_rel, full)
         elif "class" in self.model_tree.item(item, "tags"):
             messagebox.showinfo(
                 "Add to SimObject",
@@ -246,6 +279,19 @@ class SDefineEditor(tk.Tk):
             simobj.jobs.append(("integration", f"trick_ret = {var}.state_integ()"))
         self._update_text()
 
+    def _add_sm_file(self, rel: str, full: str) -> None:
+        if rel in self.selected_sims:
+            return
+        classes, instances = parse_sm_file(full)
+        new_instances: List[Tuple[str, str]] = []
+        for cls in classes:
+            if cls not in instances:
+                name = simpledialog.askstring("Instance Name", f"Instance name for {cls}")
+                if name:
+                    new_instances.append((cls, name))
+        self.selected_sims[rel] = new_instances
+        self.selected_list.insert(tk.END, f"##include \"{rel}\"")
+
     def _add_headers(self) -> None:
         for item in self.model_tree.selection():
             if "header" in self.model_tree.item(item, "tags"):
@@ -254,6 +300,10 @@ class SDefineEditor(tk.Tk):
                 if header not in self.selected_headers:
                     self.selected_headers.append(header)
                     self.selected_list.insert(tk.END, f"##include \"{header}\"")
+            elif "sm" in self.model_tree.item(item, "tags"):
+                full = self.model_tree.item(item, "values")[0]
+                sm_rel = os.path.relpath(full, self.models_dir)
+                self._add_sm_file(sm_rel, full)
         self._update_text()
 
     def _update_class_list(self, _event: Optional[tk.Event] = None) -> None:
@@ -313,6 +363,11 @@ class SDefineEditor(tk.Tk):
         lines: List[str] = []
         for h in self.selected_headers:
             lines.append(f"##include \"{h}\"")
+        for sm in self.selected_sims:
+            lines.append(f"##include \"{sm}\"")
+        for sm, insts in self.selected_sims.items():
+            for cls, name in insts:
+                lines.append(f"{cls} {name};")
         for so in self.simobjects:
             lines.append("")
             lines.append(f"class {so.name} : public Trick::SimObject {{")
